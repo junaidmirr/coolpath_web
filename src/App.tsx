@@ -13,10 +13,12 @@ interface NamedCoord {
 }
 
 const ACTIVITIES: { id: ActivityType; label: string; icon: string; speedKmh: number }[] = [
-  { id: 'walking', label: 'Walk', icon: '🚶', speedKmh: 5.0 },
-  { id: 'running', label: 'Run', icon: '🏃', speedKmh: 10.0 },
-  { id: 'biking', label: 'Bike', icon: '🚴', speedKmh: 16.0 },
   { id: 'driving', label: 'Drive', icon: '🚗', speedKmh: 35.0 },
+   { id: 'biking', label: 'Bike', icon: '🚴', speedKmh: 16.0 },
+    { id: 'running', label: 'Run', icon: '🏃', speedKmh: 10.0 },
+  { id: 'walking', label: 'Walk', icon: '🚶', speedKmh: 5.0 },
+ 
+  
 ];
 
 const PACES: { id: PaceType; label: string }[] = [
@@ -50,7 +52,7 @@ function App() {
   const [dest, setDest] = useState<NamedCoord>({ lat: 40.7140, lng: -74.0060, name: 'Financial District, New York' });
   
   // Activity and Pace
-  const [activity, setActivity] = useState<ActivityType>('walking');
+  const [activity, setActivity] = useState<ActivityType>('driving');
   const [pace, setPace] = useState<PaceType>('normal');
 
   // Map pin mode
