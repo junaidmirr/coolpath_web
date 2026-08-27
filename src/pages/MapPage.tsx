@@ -3,7 +3,7 @@ import Map, { type PinMode } from '../components/Map';
 import LocationSearch, { type GeoResult } from '../components/LocationSearch';
 import { planMission, checkBackendHealth, parseUserIntent, type BackendStatus } from '../services/api';
 import type { MissionRequest, MissionResponse, ActivityType, PaceType, PlanningMode, ParsedIntent } from '../types/mission';
-import { Navbar } from '../components/Navbar';
+
 
 interface NamedCoord {
   lat: number;
@@ -401,7 +401,7 @@ export default function MapPage() {
             )}
 
             {/* Origin & Destination */}
-            <div className="space-y-2">
+            <div className="space-y-2 ">
               <LocationSearch
                 label="Origin"
                 value={origin.name}
