@@ -9,7 +9,7 @@ export interface GeoResult {
 
 interface LocationSearchProps {
   label: string;
-  value: string;           // Human-readable location name shown in the box
+  value: string;
   onSelect: (result: GeoResult) => void;
   pinColor?: 'green' | 'red';
   disabled?: boolean;
@@ -23,7 +23,6 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -39,7 +38,7 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
     setQuery(q);
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (q.length < 3) {
+    if (q.length < 2) {
       setResults([]);
       setOpen(false);
       return;
@@ -48,17 +47,41 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const baseUrl = await getActiveBaseUrl();
-        const resp = await fetch(`${baseUrl}/api/geocode?q=${encodeURIComponent(q)}`);
-        const data = await resp.json();
-        setResults(data.results || []);
+        let fetchedResults: GeoResult[] = [];
+        
+        // Backend Geocode Endpoint
+        try {
+          const baseUrl = await getActiveBaseUrl();
+          const resp = await fetch(`${baseUrl}/api/geocode?q=${encodeURIComponent(q)}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            fetchedResults = data.results || [];
+          }
+        } catch (e) {
+          console.warn("Backend geocode failed, using fallback Nominatim API");
+        }
+
+        // Direct Nominatim Fallback if backend search returns empty
+        if (fetchedResults.length === 0) {
+          const nomResp = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=us&limit=5`
+          );
+          const nomData = await nomResp.json();
+          fetchedResults = nomData.map((item: any) => ({
+            display_name: item.display_name,
+            lat: parseFloat(item.lat),
+            lng: parseFloat(item.lon)
+          }));
+        }
+
+        setResults(fetchedResults);
         setOpen(true);
       } catch {
         setResults([]);
       } finally {
         setLoading(false);
       }
-    }, 400); // 400ms debounce
+    }, 350);
   };
 
   const handleSelect = (r: GeoResult) => {
@@ -84,7 +107,6 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
         {label}
       </label>
 
-      {/* Selected location display */}
       {value && !query && (
         <div style={{
           padding: '8px 12px',
@@ -104,7 +126,7 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
 
       <input
         type="text"
-        placeholder={value ? 'Search to change location…' : 'Type a place name or address…'}
+        placeholder={value ? 'Search to change location…' : 'Type a place, city or state name…'}
         value={query}
         onChange={handleChange}
         disabled={disabled}
@@ -112,7 +134,7 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
           borderRadius: value && !query ? '0 0 6px 6px' : '6px',
           borderTop: value && !query ? 'none' : undefined,
         }}
-        onFocus={() => query.length >= 3 && setOpen(true)}
+        onFocus={() => query.length >= 2 && setOpen(true)}
       />
 
       {loading && (
@@ -170,7 +192,7 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
         </div>
       )}
 
-      {open && results.length === 0 && !loading && query.length >= 3 && (
+      {open && results.length === 0 && !loading && query.length >= 2 && (
         <div style={{
           position: 'absolute',
           top: '100%',
