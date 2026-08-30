@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { getActiveBaseUrl } from '../services/api';
+import { getActiveBaseUrl, fetchSmartSearchSuggestions } from '../services/api';
 
 export interface GeoResult {
   display_name: string;
@@ -9,20 +9,31 @@ export interface GeoResult {
 
 interface LocationSearchProps {
   label: string;
-  value: string;
+  value: string;           // Human-readable location name shown in the box
   onSelect: (result: GeoResult) => void;
   pinColor?: 'green' | 'red';
   disabled?: boolean;
+  originLat?: number;      // To support smart search proximity calculations
+  originLng?: number;
 }
 
-const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect, pinColor = 'green', disabled }) => {
+const LocationSearch: React.FC<LocationSearchProps> = ({
+  label,
+  value,
+  onSelect,
+  pinColor = 'green',
+  disabled,
+  originLat,
+  originLng
+}) => {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<GeoResult[]>([]);
+  const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Close dropdown on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -47,48 +58,42 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        let fetchedResults: GeoResult[] = [];
-        
-        // Backend Geocode Endpoint
-        try {
-          const baseUrl = await getActiveBaseUrl();
+        const baseUrl = await getActiveBaseUrl();
+        if (label === 'Destination' && originLat !== undefined && originLng !== undefined) {
+          // Trigger intelligent proximity ring search + Gemini re-ranking
+          const smartResults = await fetchSmartSearchSuggestions(q, originLat, originLng);
+          setResults(smartResults || []);
+        } else {
+          // Standard Nominatim geocoder
           const resp = await fetch(`${baseUrl}/api/geocode?q=${encodeURIComponent(q)}`);
-          if (resp.ok) {
-            const data = await resp.json();
-            fetchedResults = data.results || [];
-          }
-        } catch (e) {
-          console.warn("Backend geocode failed, using fallback Nominatim API");
-        }
-
-        // Direct Nominatim Fallback if backend search returns empty
-        if (fetchedResults.length === 0) {
-          const nomResp = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&countrycodes=us&limit=5`
-          );
-          const nomData = await nomResp.json();
-          fetchedResults = nomData.map((item: any) => ({
-            display_name: item.display_name,
-            lat: parseFloat(item.lat),
-            lng: parseFloat(item.lon)
+          const data = await resp.json();
+          // Map Nominatim output format to result layout
+          const standardResults = (data.results || []).map((item: any) => ({
+            id: item.place_name,
+            place_name: item.display_name,
+            lat: item.lat,
+            lng: item.lng
           }));
+          setResults(standardResults);
         }
-
-        setResults(fetchedResults);
         setOpen(true);
       } catch {
         setResults([]);
       } finally {
         setLoading(false);
       }
-    }, 350);
+    }, 400); // 400ms debounce
   };
 
-  const handleSelect = (r: GeoResult) => {
+  const handleSelect = (r: any) => {
     setQuery('');
     setOpen(false);
     setResults([]);
-    onSelect(r);
+    onSelect({
+      display_name: r.place_name,
+      lat: r.lat,
+      lng: r.lng
+    });
   };
 
   const dotColor = pinColor === 'green' ? '#10b981' : '#ef4444';
@@ -107,15 +112,16 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
         {label}
       </label>
 
+      {/* Selected location display */}
       {value && !query && (
         <div style={{
           padding: '8px 12px',
-          background: '#f0fdf4',
+          background: 'rgba(16, 185, 129, 0.1)',
           border: `1px solid ${dotColor}33`,
           borderRadius: '6px 6px 0 0',
           fontSize: '13px',
-          color: '#166534',
-          fontWeight: 500,
+          color: pinColor === 'green' ? '#10b981' : '#f43f5e',
+          fontWeight: 600,
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap'
@@ -126,13 +132,21 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
 
       <input
         type="text"
-        placeholder={value ? 'Search to change location…' : 'Type a place, city or state name…'}
+        placeholder={value ? 'Search to change location…' : 'Type a place name or address…'}
         value={query}
         onChange={handleChange}
         disabled={disabled}
         style={{
           borderRadius: value && !query ? '0 0 6px 6px' : '6px',
           borderTop: value && !query ? 'none' : undefined,
+          background: 'rgba(255, 255, 255, 0.05)',
+          border: '1.5px solid rgba(255, 255, 255, 0.12)',
+          color: '#f8fafc',
+          outline: 'none',
+          padding: '10px 12px',
+          fontSize: '14px',
+          width: '100%',
+          transition: 'border-color 0.2s'
         }}
         onFocus={() => query.length >= 2 && setOpen(true)}
       />
@@ -144,7 +158,7 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
           top: '50%',
           transform: 'translateY(-50%)',
           fontSize: '12px',
-          color: '#6b7280'
+          color: '#94a3b8'
         }}>
           Searching…
         </div>
@@ -156,18 +170,18 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
           top: '100%',
           left: 0,
           right: 0,
-          background: 'white',
-          border: '1px solid #e5e7eb',
+          background: '#0d1b2a',
+          border: '1.5px solid rgba(255, 255, 255, 0.12)',
           borderTop: 'none',
           borderRadius: '0 0 8px 8px',
-          boxShadow: '0 8px 20px -4px rgba(0,0,0,0.15)',
+          boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
           zIndex: 1000,
-          maxHeight: '220px',
+          maxHeight: '260px',
           overflowY: 'auto'
         }}>
           {results.map((r, i) => (
             <button
-              key={i}
+              key={r.id || i}
               onClick={() => handleSelect(r)}
               style={{
                 display: 'block',
@@ -178,15 +192,37 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
                 background: 'none',
                 cursor: 'pointer',
                 fontSize: '13px',
-                color: '#1e293b',
-                borderBottom: i < results.length - 1 ? '1px solid #f1f5f9' : 'none',
-                lineHeight: 1.4
+                color: '#e2e8f0',
+                borderBottom: i < results.length - 1 ? '1px solid rgba(255, 255, 255, 0.08)' : 'none',
+                lineHeight: 1.4,
+                transition: 'background 0.2s'
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.06)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'none')}
             >
-              <span style={{ marginRight: '6px' }}>📍</span>
-              {r.display_name.length > 70 ? r.display_name.slice(0, 70) + '…' : r.display_name}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap', maxWidth: '360px' }}>
+                  {r.place_name}
+                </span>
+                {r.badge_label && (
+                  <span style={{
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    background: r.badge_label.includes('Best Choice') ? 'rgba(16, 185, 129, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                    color: r.badge_label.includes('Best Choice') ? '#10b981' : '#94a3b8',
+                    border: `1px solid ${r.badge_label.includes('Best Choice') ? 'rgba(16, 185, 129, 0.3)' : 'rgba(255, 255, 255, 0.15)'}`
+                  }}>
+                    {r.badge_label}
+                  </span>
+                )}
+              </div>
+              {r.reasoning && (
+                <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                  Reason: {r.reasoning}
+                </div>
+              )}
             </button>
           ))}
         </div>
@@ -198,13 +234,13 @@ const LocationSearch: React.FC<LocationSearchProps> = ({ label, value, onSelect,
           top: '100%',
           left: 0,
           right: 0,
-          background: 'white',
-          border: '1px solid #e5e7eb',
+          background: '#0d1b2a',
+          border: '1.5px solid rgba(255, 255, 255, 0.12)',
           borderTop: 'none',
           borderRadius: '0 0 8px 8px',
           padding: '12px 14px',
           fontSize: '13px',
-          color: '#6b7280',
+          color: '#94a3b8',
           zIndex: 1000
         }}>
           No results found for "{query}"

@@ -90,3 +90,60 @@ export interface MissionResponse {
     parsed_profile_tags?: string[];
     explanation: string;
 }
+
+export interface AssistantChatMessage {
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    display_text?: string;
+    action?: string | null;
+    action_data?: any;
+    suggested_replies?: string[];
+    timestamp?: number;
+}
+
+export interface AssistantChatContext {
+    current_origin?: string;
+    current_dest?: string;
+    temp_c?: number;
+    aqi?: number;
+    pending_action?: any;
+    selected_route_name?: string;
+}
+
+export interface SmartSearchResultItem {
+    id: string;
+    place_name: string;
+    short_name: string;
+    lat: number;
+    lng: number;
+    distance_km: number;
+    ring: string;
+    badge_label?: string;
+    reasoning?: string;
+}
+
+export interface PlaceSuggestion {
+    id: string;
+    placeName: string;
+    shortName: string;
+    lat: number;
+    lng: number;
+    distanceKm?: number;
+    ring?: string;
+    badgeLabel?: string;
+    reasoning?: string;
+}
+
+export interface HistoryItem {
+    id: string;
+    originText: string;
+    originCoord: Coordinate;
+    destText: string;
+    destCoord: Coordinate;
+    activity: ActivityType;
+    pace: PaceType;
+    planningMode: PlanningMode;
+    response: MissionResponse;
+    selectedRouteId: string;
+    timestamp: number;
+}
