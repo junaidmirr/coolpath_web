@@ -187,23 +187,84 @@ const Map: React.FC<MapProps> = ({
     map.current.flyTo({ center: [flyToCoord.lng, flyToCoord.lat], zoom: 15, duration: 1200 });
   }, [flyToCoord]);
 
-  // Helper function to draw routes
+  // Chevron Arrow Icon registration
+  const registerArrowIcon = (m: mapboxgl.Map) => {
+    if (m.hasImage('nav-chevron')) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.strokeStyle = '#FFFFFF';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(8, 6);
+      ctx.lineTo(24, 16);
+      ctx.lineTo(8, 26);
+      ctx.stroke();
+      const imgData = ctx.getImageData(0, 0, 32, 32);
+      m.addImage('nav-chevron', imgData);
+    } catch {}
+  };
+
+  // Turn point detection helper
+  const calculateTurnPoints = (coords: [number, number][]) => {
+    const turnPoints: any[] = [];
+    if (coords.length < 3) return turnPoints;
+    for (let i = 1; i < coords.length - 1; i++) {
+      const pPrev = coords[i - 1];
+      const pCurr = coords[i];
+      const pNext = coords[i + 1];
+      const b1 = (Math.atan2(pCurr[0] - pPrev[0], pCurr[1] - pPrev[1]) * 180) / Math.PI;
+      const b2 = (Math.atan2(pNext[0] - pCurr[0], pNext[1] - pCurr[1]) * 180) / Math.PI;
+      let angle = Math.abs(b2 - b1);
+      if (angle > 180) angle = 360 - angle;
+      if (angle > 30) {
+        turnPoints.push({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: pCurr },
+          properties: { angle: Math.round(angle) },
+        });
+      }
+    }
+    return turnPoints;
+  };
+
+  // Helper function to draw routes with mobile-parity chevrons, temperature badges, and glow
   const drawAllRoutes = () => {
     const m = map.current;
     if (!m) return;
+    registerArrowIcon(m);
 
-    // Remove old layers
+    // Clean up old layers & sources
     const style = m.getStyle();
     if (style && style.layers) {
       style.layers.forEach((layer) => {
-        if (layer.id.startsWith('route-layer-') || layer.id.startsWith('route-hit-')) {
+        if (
+          layer.id.startsWith('casing-') ||
+          layer.id.startsWith('glow-') ||
+          layer.id.startsWith('line-') ||
+          layer.id.startsWith('arrow-') ||
+          layer.id.startsWith('turn-') ||
+          layer.id.startsWith('temp-lbl-') ||
+          layer.id.startsWith('route-layer-') ||
+          layer.id.startsWith('route-hit-')
+        ) {
           if (m.getLayer(layer.id)) m.removeLayer(layer.id);
         }
       });
     }
     if (style && style.sources) {
       Object.keys(style.sources).forEach((srcId) => {
-        if (srcId.startsWith('route-source-')) {
+        if (
+          srcId.startsWith('src-') ||
+          srcId.startsWith('turn-src-') ||
+          srcId.startsWith('temp-src-') ||
+          srcId.startsWith('route-source-')
+        ) {
           if (m.getSource(srcId)) m.removeSource(srcId);
         }
       });
@@ -245,7 +306,7 @@ const Map: React.FC<MapProps> = ({
 
     const activeId = selectedRouteId || routeOptions[0]?.id;
 
-    // Draw non-selected routes first (underneath), then selected route on top
+    // Draw unselected routes first, selected route on top
     const sortedToDraw = [...routeOptions].sort((a, b) => {
       if (a.id === activeId) return 1;
       if (b.id === activeId) return -1;
@@ -259,63 +320,252 @@ const Map: React.FC<MapProps> = ({
       if (!route.coordinates || route.coordinates.length < 2) return;
 
       const isSelected = route.id === activeId;
-      const sourceId = `route-source-${route.id}`;
-      const layerId = `route-layer-${route.id}`;
-      const hitLayerId = `route-hit-${route.id}`;
+      const srcId = `src-${route.id}`;
+      const casingId = `casing-${route.id}`;
+      const glowId = `glow-${route.id}`;
+      const lineId = `line-${route.id}`;
+      const arrowId = `arrow-${route.id}`;
+      const turnSrcId = `turn-src-${route.id}`;
+      const turnId = `turn-${route.id}`;
 
       const baseColor =
         ROUTE_COLORS[route.id] ||
         (route.is_recommended ? '#10B981' : route.id === 'fastest' ? '#64748B' : '#3B82F6');
 
-      m.addSource(sourceId, {
-        type: 'geojson',
-        data: {
-          type: 'Feature',
-          properties: { id: route.id, name: route.name },
-          geometry: {
-            type: 'LineString',
-            coordinates: route.coordinates,
+      // Thermal gradient calculations
+      let lineGradientExpression: any = null;
+      const gTemps = (isSelected && route.geometry_temps && route.geometry_temps.length >= 2) ? route.geometry_temps : null;
+
+      if (gTemps) {
+        const distances = [0];
+        let totalDist = 0;
+        for (let i = 1; i < gTemps.length; i++) {
+          const p1 = gTemps[i - 1];
+          const p2 = gTemps[i];
+          const dx = (p2[0] - p1[0]) * Math.cos(((p1[1] + p2[1]) * Math.PI) / 360.0);
+          const dy = p2[1] - p1[1];
+          const d = Math.sqrt(dx * dx + dy * dy);
+          totalDist += d;
+          distances.push(totalDist);
+        }
+
+        if (totalDist > 0) {
+          const getTempColor = (t: number) => {
+            if (t <= 24) return '#10B981'; // Cool Green
+            if (t <= 28) return '#38BDF8'; // Mild Blue
+            if (t <= 33) return '#F59E0B'; // Warm Amber
+            return '#EF4444'; // Hot Red
+          };
+
+          const stops: any[] = [];
+          let lastProgress = -1;
+          for (let i = 0; i < gTemps.length; i++) {
+            let progress = distances[i] / totalDist;
+            if (progress <= lastProgress) progress = lastProgress + 0.001;
+            if (progress > 1.0) progress = 1.0;
+            stops.push(progress, getTempColor(gTemps[i][2]));
+            lastProgress = progress;
+          }
+          lineGradientExpression = ['interpolate', ['linear'], ['line-progress'], ...stops];
+        }
+      }
+
+      // Add Source
+      try {
+        m.addSource(srcId, {
+          type: 'geojson',
+          lineMetrics: !!lineGradientExpression,
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: route.coordinates,
+            },
           },
-        },
-      });
+        });
+      } catch {}
 
-      // Visible Route Line
-      m.addLayer({
-        id: layerId,
-        type: 'line',
-        source: sourceId,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': isSelected ? (route.is_recommended ? '#10B981' : '#3B82F6') : baseColor,
-          'line-width': isSelected ? 6 : 4,
-          'line-opacity': isSelected ? 1.0 : 0.45,
-          ...(isSelected ? {} : { 'line-dasharray': [2, 1] }),
-        },
-      });
+      // 1. Under-Casing Layer (Dark outline beneath line)
+      try {
+        m.addLayer({
+          id: casingId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: {
+            'line-color': '#020617',
+            'line-width': isSelected ? 12 : 6,
+            'line-opacity': isSelected ? 0.95 : 0.4,
+          },
+        });
+      } catch {}
 
-      // Invisible wider hit area for easy clicking
-      m.addLayer({
-        id: hitLayerId,
-        type: 'line',
-        source: sourceId,
-        layout: { 'line-join': 'round', 'line-cap': 'round' },
-        paint: {
-          'line-color': 'transparent',
-          'line-width': 16,
-        },
-      });
+      // 2. Ambient Glow Halo for selected route
+      if (isSelected) {
+        try {
+          m.addLayer({
+            id: glowId,
+            type: 'line',
+            source: srcId,
+            paint: {
+              'line-color': baseColor,
+              'line-width': 28,
+              'line-opacity': 0.22,
+              'line-blur': 10,
+            },
+          });
+        } catch {}
+      }
 
-      // Click on route polyline
-      m.on('click', hitLayerId, () => {
-        if (onSelectRoute) onSelectRoute(route.id);
-      });
+      // 3. Primary Route Polyline Layer
+      try {
+        const linePaint: any = {
+          'line-width': isSelected ? 8 : 4,
+          'line-opacity': isSelected ? 1.0 : 0.5,
+        };
 
-      m.on('mouseenter', hitLayerId, () => {
-        m.getCanvas().style.cursor = 'pointer';
-      });
-      m.on('mouseleave', hitLayerId, () => {
-        if (!pinMode) m.getCanvas().style.cursor = '';
-      });
+        if (lineGradientExpression) {
+          linePaint['line-gradient'] = lineGradientExpression;
+        } else {
+          linePaint['line-color'] = baseColor;
+        }
+
+        m.addLayer({
+          id: lineId,
+          type: 'line',
+          source: srcId,
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: linePaint,
+        });
+      } catch {}
+
+      // 4. Directional Flow Chevrons (▶ ▶ ▶)
+      try {
+        m.addLayer({
+          id: arrowId,
+          type: 'symbol',
+          source: srcId,
+          layout: {
+            'symbol-placement': 'line',
+            'symbol-spacing': isSelected ? 55 : 90,
+            'icon-image': 'nav-chevron',
+            'icon-size': isSelected ? 0.55 : 0.38,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-rotation-alignment': 'map',
+            'icon-keep-upright': false,
+          },
+          paint: {
+            'icon-opacity': isSelected ? 0.9 : 0.35,
+          },
+        });
+      } catch {}
+
+      // 5. Turn Decision Circle Nodes
+      if (isSelected) {
+        const turns = calculateTurnPoints(route.coordinates as [number, number][]);
+        if (turns.length > 0) {
+          try {
+            m.addSource(turnSrcId, {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features: turns },
+            });
+            m.addLayer({
+              id: turnId,
+              type: 'circle',
+              source: turnSrcId,
+              paint: {
+                'circle-radius': 5,
+                'circle-color': '#FFFFFF',
+                'circle-stroke-color': baseColor,
+                'circle-stroke-width': 2.5,
+                'circle-opacity': 0.95,
+              },
+            });
+          } catch {}
+        }
+      }
+
+      // 6. Segment Temperature Badges on Route Tiles (e.g. 24°, 31°, 36°)
+      if (isSelected) {
+        const tempsToSample = gTemps || route.coordinates.map((c, idx) => [
+          c[0],
+          c[1],
+          route.avg_temp_c || (24 + (idx % 8))
+        ]);
+
+        if (tempsToSample.length >= 2) {
+          const MAX_BADGES = 8;
+          const step = Math.max(1, Math.floor(tempsToSample.length / MAX_BADGES));
+          const tempFeatures: any[] = [];
+
+          for (let i = 0; i < tempsToSample.length; i += step) {
+            const pt = tempsToSample[i];
+            const lng = pt[0], lat = pt[1], tempC = pt[2];
+            if (!isFinite(lng) || !isFinite(lat) || !isFinite(tempC)) continue;
+
+            const tempRounded = Math.round(tempC);
+            let tempColor = '#10B981';
+            if (tempC <= 24) tempColor = '#10B981';
+            else if (tempC <= 28) tempColor = '#38BDF8';
+            else if (tempC <= 33) tempColor = '#F59E0B';
+            else tempColor = '#EF4444';
+
+            tempFeatures.push({
+              type: 'Feature',
+              geometry: { type: 'Point', coordinates: [lng, lat] },
+              properties: {
+                tempText: `${tempRounded}°`,
+                tempColor,
+              },
+            });
+          }
+
+          const tempSrcId = `temp-src-${route.id}`;
+          const tempLayerId = `temp-lbl-${route.id}`;
+
+          try {
+            m.addSource(tempSrcId, {
+              type: 'geojson',
+              data: { type: 'FeatureCollection', features: tempFeatures },
+            });
+
+            m.addLayer({
+              id: tempLayerId,
+              type: 'symbol',
+              source: tempSrcId,
+              layout: {
+                'text-field': ['get', 'tempText'],
+                'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                'text-size': 12,
+                'text-allow-overlap': false,
+                'text-ignore-placement': false,
+                'text-anchor': 'center',
+                'text-offset': [0, 0],
+              },
+              paint: {
+                'text-color': ['get', 'tempColor'],
+                'text-halo-color': '#020617',
+                'text-halo-width': 2.5,
+                'text-halo-blur': 0.5,
+              },
+            });
+          } catch {}
+        }
+      }
+
+      // Click listener for route selection
+      try {
+        m.on('click', lineId, () => {
+          if (onSelectRoute) onSelectRoute(route.id);
+        });
+        m.on('mouseenter', lineId, () => {
+          m.getCanvas().style.cursor = 'pointer';
+        });
+        m.on('mouseleave', lineId, () => {
+          if (!pinMode) m.getCanvas().style.cursor = '';
+        });
+      } catch {}
 
       if (isSelected) {
         route.coordinates.forEach((c) => {
@@ -326,7 +576,7 @@ const Map: React.FC<MapProps> = ({
     });
 
     if (hasCoords) {
-      m.fitBounds(bounds, { padding: 70, duration: 700 });
+      m.fitBounds(bounds, { padding: 75, duration: 800 });
     }
   };
 
