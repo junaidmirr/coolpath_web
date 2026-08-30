@@ -1,203 +1,236 @@
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { MissionRequest, MissionResponse } from '../types/mission';
 
-// start.py writes the chosen backend port into coolpath/frontend/.env.local
-// before Vite boots, so this value is always correct when launched via start.sh.
-// Fallback port scan kicks in only when the frontend is started manually.
-const GCP_BACKEND_URL = (import.meta as any).env?.VITE_GCP_BACKEND_URL || 'https://coolpath-806112833144.europe-west1.run.app';
-const NGROK_BACKEND_URL = (import.meta as any).env?.VITE_NGROK_BACKEND_URL;
-const ENV_API_URL: string | undefined = (import.meta as any).env?.VITE_API_URL;
+const trimTrailingSlash = (url: string): string => url.replace(/\/+$/, '');
 
-const CANDIDATE_URLS = [
-  ENV_API_URL,
-  GCP_BACKEND_URL,
-  NGROK_BACKEND_URL,
-  'http://localhost:8000',
-  'http://localhost:8001',
-  'http://localhost:8002',
-  'http://localhost:8003',
-  'http://localhost:8004',
-].filter(Boolean) as string[];
+export const NGROK_BACKEND_URL =
+  trimTrailingSlash(process.env.EXPO_PUBLIC_NGROK_BACKEND_URL || 'https://sheldon-unexcerpted-overwillingly.ngrok-free.dev');
 
-let activeBaseUrl: string | null = ENV_API_URL || null;
+export const GCP_CLOUD_RUN_URL =
+  trimTrailingSlash(process.env.EXPO_PUBLIC_GCP_BACKEND_URL || 'https://coolpath-806112833144.europe-west1.run.app');
+
+const CANDIDATE_HOSTS = [
+  NGROK_BACKEND_URL,      // Primary Default: Ngrok Tunnel
+  GCP_CLOUD_RUN_URL,      // Fallback: GCP Cloud Run
+  'http://10.0.2.2:8000', // Local Android Emulator
+  'http://localhost:8000', // Local iOS Simulator / Web
+  'http://127.0.0.1:8000',
+];
+
+export const COMMON_HEADERS = {
+  'ngrok-skip-browser-warning': 'true',
+  'User-Agent': 'CoolPathMobile/1.0',
+};
+
+let activeBaseUrl: string | null = null;
+
+export const setCustomBackendUrl = async (url: string | null) => {
+  if (url) {
+    const trimmed = trimTrailingSlash(url);
+    await AsyncStorage.setItem('@custom_backend_url', trimmed);
+    activeBaseUrl = trimmed; // Override immediately
+  } else {
+    await AsyncStorage.removeItem('@custom_backend_url');
+    activeBaseUrl = null;
+  }
+};
+
+export const getCustomBackendUrl = async (): Promise<string | null> => {
+  try {
+    return await AsyncStorage.getItem('@custom_backend_url');
+  } catch {
+    return null;
+  }
+};
 
 export interface BackendStatus {
   online: boolean;
   url: string | null;
-  port: number | null;
   demoMode?: boolean;
+  isRender?: boolean;
+  isGcp?: boolean;
+  isNgrok?: boolean;
+  serverName?: string;
+  isCustom?: boolean;
+}
+
+function determineServerName(url: string, isCustom: boolean = false): { serverName: string; isRender: boolean; isGcp: boolean; isNgrok: boolean; isCustom: boolean } {
+  if (isCustom) {
+    return { serverName: 'Custom Backend', isRender: false, isGcp: false, isNgrok: false, isCustom: true };
+  } else if (url.includes('ngrok-free.dev') || url.includes('ngrok.io')) {
+    return { serverName: 'Ngrok Tunnel', isRender: false, isGcp: false, isNgrok: true, isCustom: false };
+  } else if (url.includes('onrender.com')) {
+    return { serverName: 'Render Cloud', isRender: true, isGcp: false, isNgrok: false, isCustom: false };
+  } else if (url.includes('run.app')) {
+    return { serverName: 'GCP Cloud Run', isRender: false, isGcp: true, isNgrok: false, isCustom: false };
+  } else {
+    return { serverName: 'Local Server', isRender: false, isGcp: false, isNgrok: false, isCustom: false };
+  }
 }
 
 export const checkBackendHealth = async (): Promise<BackendStatus> => {
-  const customUrl = localStorage.getItem('custom_backend_url');
-  const urlToTest = activeBaseUrl || customUrl;
-
-  if (urlToTest) {
+  const customUrl = await getCustomBackendUrl();
+  
+  if (activeBaseUrl) {
     try {
-      const res = await axios.get(`${urlToTest}/health`, { timeout: 2500, headers: { 'ngrok-skip-browser-warning': 'true' } });
+      const res = await axios.get(`${activeBaseUrl}/health`, {
+        timeout: 6000,
+        headers: COMMON_HEADERS,
+      });
       if (res.data?.status === 'ok') {
-        activeBaseUrl = urlToTest;
-        const portMatch = urlToTest.match(/:(\d+)/);
+        const info = determineServerName(activeBaseUrl, activeBaseUrl === customUrl);
         return {
           online: true,
-          url: urlToTest,
-          port: portMatch ? parseInt(portMatch[1]) : null,
-          demoMode: res.data?.demo_mode
+          url: activeBaseUrl,
+          demoMode: res.data?.demo_mode,
+          ...info,
         };
       }
     } catch {
-      activeBaseUrl = null; // Cache invalidated
+      activeBaseUrl = null;
     }
   }
 
-  // Probe in parallel
-  const probePromises = CANDIDATE_URLS.map(async (url) => {
+  if (customUrl) {
     try {
-      const res = await axios.get(`${url}/health`, { timeout: 3000, headers: { 'ngrok-skip-browser-warning': 'true' } });
+      const res = await axios.get(`${customUrl}/health`, {
+        timeout: 6000,
+        headers: COMMON_HEADERS,
+      });
       if (res.data?.status === 'ok') {
-        const portMatch = url.match(/:(\d+)/);
+        activeBaseUrl = customUrl;
+        const info = determineServerName(customUrl, true);
         return {
-          url,
-          port: portMatch ? parseInt(portMatch[1]) : null,
-          demoMode: res.data?.demo_mode
+          online: true,
+          url: customUrl,
+          demoMode: res.data?.demo_mode,
+          ...info,
         };
       }
-    } catch {}
-    return null;
-  });
-
-  const results = await Promise.all(probePromises);
-  const active = results.find(r => r !== null);
-
-  if (active) {
-    activeBaseUrl = active.url;
-    return {
-      online: true,
-      url: active.url,
-      port: active.port,
-      demoMode: active.demoMode
-    };
+    } catch {
+      // Custom URL failed, fallback to CANDIDATE_HOSTS
+    }
   }
 
-  return {
-    online: false,
-    url: null,
-    port: null
-  };
-};
-
-export const getActiveBaseUrl = async (): Promise<string> => {
-  if (activeBaseUrl) return activeBaseUrl;
-  const status = await checkBackendHealth();
-  if (status.online && status.url) {
-    return status.url;
+  for (const host of CANDIDATE_HOSTS) {
+    try {
+      const res = await axios.get(`${host}/health`, {
+        timeout: 6000,
+        headers: COMMON_HEADERS,
+      });
+      if (res.data?.status === 'ok') {
+        activeBaseUrl = host;
+        const info = determineServerName(host);
+        return {
+          online: true,
+          url: host,
+          demoMode: res.data?.demo_mode,
+          ...info,
+        };
+      }
+    } catch {
+      continue;
+    }
   }
-  return GCP_BACKEND_URL;
-};
 
-export const planMission = async (request: MissionRequest): Promise<MissionResponse> => {
-  const baseUrl = await getActiveBaseUrl();
-  const response = await axios.post(`${baseUrl}/api/mission`, request, {
-    timeout: 120000,
-    headers: { 'ngrok-skip-browser-warning': 'true' }
-  });
-  return response.data;
-};
-
-export const parseUserIntent = async (prompt: string) => {
-  const baseUrl = await getActiveBaseUrl();
-  const response = await axios.post(`${baseUrl}/api/parse-intent`, { prompt }, {
-    timeout: 15000,
-    headers: { 'ngrok-skip-browser-warning': 'true' }
-  });
-  return response.data;
+  return { online: false, url: null, serverName: 'Offline' };
 };
 
 export const resetActiveBaseUrl = () => {
   activeBaseUrl = null;
 };
 
-export const callAssistantBackend = async (
-  messages: { role: string; content: string }[],
-  context: any
-): Promise<any> => {
+export const getActiveBaseUrl = async (): Promise<string> => {
+  if (activeBaseUrl) return activeBaseUrl;
+  const status = await checkBackendHealth();
+  return status.url || NGROK_BACKEND_URL;
+};
+
+const normalizeMissionResponse = (data: MissionResponse): MissionResponse => {
+  if (data.route_options?.length || !data.routes) {
+    return data;
+  }
+
+  const routeOptions = [];
+  if (data.routes.fastest?.length > 1) {
+    routeOptions.push({
+      id: 'fastest',
+      name: 'Direct Fastest',
+      tag: data.recommended_action?.route_id === 'fastest' ? 'Recommended' : 'Fastest',
+      travel_minutes: data.comparison?.fastest?.travel_minutes || 0,
+      avg_temp_c: 33.5,
+      thermal_exposure: data.comparison?.fastest?.thermal_exposure || 0,
+      thermal_reduction_percent: 0,
+      coordinates: data.routes.fastest,
+      explanation: data.explanation || '',
+      is_recommended: data.recommended_action?.route_id === 'fastest',
+    });
+  }
+
+  if (data.routes.recommended?.length > 1) {
+    const isDuplicate =
+      JSON.stringify(data.routes.recommended) === JSON.stringify(data.routes.fastest);
+    if (!isDuplicate) {
+      routeOptions.push({
+        id:
+          data.recommended_action?.route_id &&
+          data.recommended_action.route_id !== 'fastest'
+            ? data.recommended_action.route_id
+            : 'recommended',
+        name: 'CoolPath Route',
+        tag: 'Recommended',
+        travel_minutes: data.comparison?.recommended?.travel_minutes || 0,
+        avg_temp_c: 31.8,
+        thermal_exposure: data.comparison?.recommended?.thermal_exposure || 0,
+        thermal_reduction_percent: data.thermal_reduction_percent || 0,
+        coordinates: data.routes.recommended,
+        explanation: data.explanation || '',
+        is_recommended: true,
+      });
+    }
+  }
+
+  return { ...data, route_options: routeOptions };
+};
+
+export const planMission = async (request: MissionRequest): Promise<MissionResponse> => {
   const baseUrl = await getActiveBaseUrl();
   try {
-    const response = await axios.post(
-      `${baseUrl}/api/assistant/chat`,
-      { messages, context },
-      {
-        timeout: 30000,
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      }
-    );
-    if (response.data && response.data.data) {
-      return response.data.data;
-    }
-    throw new Error('Invalid response structure from assistant API');
+    const response = await axios.post(`${baseUrl}/api/mission`, request, {
+      timeout: 120000,
+      headers: COMMON_HEADERS,
+    });
+    return normalizeMissionResponse(response.data);
   } catch (error: any) {
-    if (error.response?.status === 503) {
-      resetActiveBaseUrl();
-      const newBaseUrl = await getActiveBaseUrl();
-      if (newBaseUrl && newBaseUrl !== baseUrl) {
-        try {
-          const retryRes = await axios.post(
-            `${newBaseUrl}/api/assistant/chat`,
-            { messages, context },
-            {
-              timeout: 30000,
-              headers: { 'ngrok-skip-browser-warning': 'true' }
-            }
-          );
-          if (retryRes.data && retryRes.data.data) {
-            return retryRes.data.data;
-          }
-        } catch (retryErr) {}
-      }
-    }
-    return {
-      spoken_response: "I'm ready to help you navigate through shaded, cooler urban corridors. Where would you like to go?",
-      display_text: "I can help you navigate cities while avoiding extreme heat and high asphalt temperatures.\n\nWhere would you like to go?",
-      action: null,
-      action_data: null,
-      suggested_replies: ["Go to Central Park", "Times Square to Brooklyn", "Check Weather"],
-    };
+    const message =
+      error.response?.data?.detail?.message ||
+      error.response?.data?.detail ||
+      error.message ||
+      'Route planning failed';
+    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
   }
 };
 
-export const transcribeAudio = async (audioBase64: string, mimeType: string = 'audio/webm'): Promise<string> => {
+export const parseUserIntent = async (prompt: string) => {
   const baseUrl = await getActiveBaseUrl();
   try {
     const response = await axios.post(
-      `${baseUrl}/api/assistant/transcribe`,
-      { audio_base64: audioBase64, mime_type: mimeType },
-      {
-        timeout: 20000,
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      }
-    );
-    return response.data?.transcript || '';
-  } catch (err) {
-    console.warn('[VoiceAssistant transcribe error]', err);
-    return '';
-  }
-};
-
-export const fetchPollyTTSAudio = async (text: string, voiceId: string = 'Salli', engine: string = 'standard'): Promise<string | null> => {
-  const baseUrl = await getActiveBaseUrl();
-  try {
-    const response = await axios.post(
-      `${baseUrl}/api/assistant/tts`,
-      { text, voice_id: voiceId, engine },
+      `${baseUrl}/api/parse-intent`,
+      { prompt },
       {
         timeout: 15000,
-        headers: { 'ngrok-skip-browser-warning': 'true' }
+        headers: COMMON_HEADERS,
       }
     );
-    return response.data?.status === 'ok' ? response.data.audio_base64 : null;
-  } catch (err) {
-    console.warn('[Polly TTS error]', err);
-    return null;
+    return response.data;
+  } catch (error: any) {
+    const message =
+      error.response?.data?.detail?.message ||
+      error.response?.data?.detail ||
+      error.message ||
+      'Intent parsing failed';
+    throw new Error(typeof message === 'string' ? message : JSON.stringify(message));
   }
 };
 
@@ -211,10 +244,7 @@ export const submitRouteFeedback = async (
     const response = await axios.post(
       `${baseUrl}/api/feedback`,
       { route_type: routeType, satisfied, context },
-      {
-        timeout: 10000,
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      }
+      { timeout: 10000, headers: COMMON_HEADERS }
     );
     return response.data;
   } catch (error: any) {
@@ -228,7 +258,7 @@ export const fetchMLStats = async (): Promise<{ status: string; shade_preference
   try {
     const response = await axios.get(`${baseUrl}/api/ml/stats`, {
       timeout: 8000,
-      headers: { 'ngrok-skip-browser-warning': 'true' }
+      headers: COMMON_HEADERS,
     });
     return response.data;
   } catch (error: any) {
@@ -236,23 +266,36 @@ export const fetchMLStats = async (): Promise<{ status: string; shade_preference
   }
 };
 
+export interface SmartSearchResultItem {
+  id: string;
+  place_name: string;
+  short_name: string;
+  lat: number;
+  lng: number;
+  distance_km: number;
+  ring: string;
+  relevance_score?: number;
+  badge_label?: string;
+  reasoning?: string;
+}
+
 export const fetchSmartSearchSuggestions = async (
   query: string,
   originLat: number,
   originLng: number
-): Promise<any[]> => {
+): Promise<SmartSearchResultItem[]> => {
   if (!query || query.trim().length < 2) return [];
   try {
     const baseUrl = await getActiveBaseUrl();
     const response = await axios.post(
       `${baseUrl}/api/smart-search`,
       { query: query.trim(), origin_lat: originLat, origin_lng: originLng },
-      {
-        timeout: 8000,
-        headers: { 'ngrok-skip-browser-warning': 'true' }
-      }
+      { timeout: 8000, headers: COMMON_HEADERS }
     );
-    return Array.isArray(response.data?.results) ? response.data.results : [];
+    if (response.data && Array.isArray(response.data.results)) {
+      return response.data.results;
+    }
+    return [];
   } catch (error: any) {
     console.warn('[SmartSearch API notice]', error.message);
     return [];
