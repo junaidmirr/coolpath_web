@@ -4,16 +4,20 @@ import type { MissionRequest, MissionResponse } from '../types/mission';
 // start.py writes the chosen backend port into coolpath/frontend/.env.local
 // before Vite boots, so this value is always correct when launched via start.sh.
 // Fallback port scan kicks in only when the frontend is started manually.
+const GCP_BACKEND_URL = (import.meta as any).env?.VITE_GCP_BACKEND_URL || 'https://coolpath-806112833144.europe-west1.run.app';
+const NGROK_BACKEND_URL = (import.meta as any).env?.VITE_NGROK_BACKEND_URL;
 const ENV_API_URL: string | undefined = (import.meta as any).env?.VITE_API_URL;
 
 const CANDIDATE_URLS = [
+  ENV_API_URL,
+  GCP_BACKEND_URL,
+  NGROK_BACKEND_URL,
   'http://localhost:8000',
   'http://localhost:8001',
   'http://localhost:8002',
   'http://localhost:8003',
   'http://localhost:8004',
-  'https://coolpath-806112833144.europe-west1.run.app'
-];
+].filter(Boolean) as string[];
 
 let activeBaseUrl: string | null = ENV_API_URL || null;
 
@@ -88,7 +92,7 @@ export const getActiveBaseUrl = async (): Promise<string> => {
   if (status.online && status.url) {
     return status.url;
   }
-  return 'http://localhost:8000'; // fallback
+  return GCP_BACKEND_URL;
 };
 
 export const planMission = async (request: MissionRequest): Promise<MissionResponse> => {
