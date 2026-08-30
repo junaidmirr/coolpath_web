@@ -64,7 +64,7 @@ const Map: React.FC<MapProps> = ({
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
 
-    mapboxgl.accessToken = (import.meta as any).env?.VITE_MAPBOX_TOKEN || 'pk.eyJ1IjoianVuYWlkbWlyMDUxIiwiYSI6ImNtc3l0MWFwNjAzMmsyenNrbW1mMjI0aHcifQ.j8_w_jQUiv26L8QYQVSBVA';
+    mapboxgl.accessToken = (import.meta as any).env?.VITE_MAPBOX_TOKEN || '';
 
     const m = new mapboxgl.Map({
       container: mapContainer.current,

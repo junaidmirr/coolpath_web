@@ -1,6 +1,3 @@
-<<<<<<< Updated upstream
-@import "tailwindcss";
-=======
 :root {
   --bg-color: #0C1210;
   --text-primary: #F3F0EA;
@@ -991,4 +988,3 @@ body {
     right: 12px !important;
   }
 }
->>>>>>> Stashed changes

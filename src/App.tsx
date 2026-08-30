@@ -1,12 +1,3 @@
-<<<<<<< Updated upstream
-import React from 'react';
-import { Routes, Route } from 'react-router-dom';
-import { Navbar } from './components/Navbar';
-import MapPage from './pages/MapPage';
-import History from './pages/History';
-import Assistant from './pages/Assistant';
-import SettingsPage from './pages/SettingsPage';
-=======
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import Map, { type PinMode } from './components/Map';
 import { VoiceAssistantModal } from './components/VoiceAssistantModal';
@@ -41,36 +32,10 @@ import {
 import logoDark from './assets/logo_dark.png';
 import logoLight from './assets/logo_light.png';
 import './index.css';
->>>>>>> Stashed changes
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const MAPBOX_TOKEN = (import.meta as any).env?.VITE_MAPBOX_TOKEN ||
-  'pk.eyJ1IjoianVuYWlkbWlyMDUxIiwiYSI6ImNtc3l0MWFwNjAzMmsyenNrbW1mMjI0aHcifQ.j8_w_jQUiv26L8QYQVSBVA';
+const MAPBOX_TOKEN = (import.meta as any).env?.VITE_MAPBOX_TOKEN || '';
 
-<<<<<<< Updated upstream
-
-
-function App() {
-  return (
-    <div className="min-h-screen bg-slate-900 text-white">
-      {/* Navbar সবসময় উপরে থাকবে */}
-      <Navbar />
-
-      {/* URL অনুযায়ী নিচের পেজগুলো লোড হবে */}
-      <main className="p-4">
-        <Routes>
-          <Route path="/" element={<MapPage />} />
-          <Route path="/history" element={<History />} />
-          <Route path="/assistant" element={<Assistant />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Routes>
-      </main>
-    </div>
-  );
-}
-
-export default App;
-=======
 const ACTIVITIES: { id: ActivityType; label: string; icon: any; speedKmh: number }[] = [
   { id: 'walking', label: 'Walk', icon: Footprints, speedKmh: 5 },
   { id: 'running', label: 'Run', icon: Flame, speedKmh: 10 },
@@ -1999,4 +1964,3 @@ export default function App() {
     </div>
   );
 }
->>>>>>> Stashed changes
