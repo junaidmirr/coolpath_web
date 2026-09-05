@@ -27,7 +27,7 @@ import {
   TrendingDown, Hourglass, Gauge, AlertTriangle, Sun, Droplets,
   ArrowUpDown, Leaf, Snowflake, Scale, LocateFixed, Square,
   Plus, Minus, Target, BarChart3, CheckCircle, Trophy,
-  FileText, Lock, FlaskConical, Compass, Box
+  FileText, Lock, FlaskConical, Compass, Box, Trees
 } from 'lucide-react';
 import logoDark from './assets/logo_dark.png';
 import logoLight from './assets/logo_light.png';
@@ -619,9 +619,20 @@ export default function App() {
   const handlePlanRouteAction = useCallback(async (oText: string, dText: string, act?: string, paceArg?: string, modeArg?: string) => {
     setActiveTab('map');
     setOriginText(oText); setDestText(dText);
-    if (act && ['walking', 'running', 'biking', 'driving'].includes(act)) setActivity(act as ActivityType);
-    if (paceArg && ['slow', 'normal', 'fast'].includes(paceArg)) setPace(paceArg as PaceType);
-    if (modeArg && ['instant', 'scheduled'].includes(modeArg)) setPlanMode(modeArg as PlanningMode);
+    const validAct: ActivityType = (act && ['walking', 'running', 'biking', 'driving'].includes(act.toLowerCase()))
+      ? (act.toLowerCase() as ActivityType)
+      : activity;
+    const validPace: PaceType = (paceArg && ['slow', 'normal', 'fast'].includes(paceArg.toLowerCase()))
+      ? (paceArg.toLowerCase() as PaceType)
+      : pace;
+    const validMode: PlanningMode = (modeArg && ['instant', 'scheduled'].includes(modeArg.toLowerCase()))
+      ? (modeArg.toLowerCase() as PlanningMode)
+      : planMode;
+
+    setActivity(validAct);
+    setPace(validPace);
+    setPlanMode(validMode);
+
     let o = origin, d = dest;
     const dO = parseCoordString(oText);
     if (dO) { o = dO; setOrigin(dO); }
@@ -632,7 +643,7 @@ export default function App() {
     setIsDestSelected(true);
     setIsCrafting(true); setLoading(true); setError(null);
     try {
-      const req: MissionRequest = { origin: o, destination: d, planning_mode: planMode, deadline_minutes: 60, activity: act as ActivityType || activity, pace };
+      const req: MissionRequest = { origin: o, destination: d, planning_mode: validMode, deadline_minutes: 60, activity: validAct, pace: validPace };
       const res = await planMission(req);
       setResponse(res);
       if (res.route_options?.length) { const rec = res.route_options.find(r => r.is_recommended) || res.route_options[0]; setSelectedRoute(rec.id); }
@@ -641,7 +652,7 @@ export default function App() {
         originText: oText.trim() || `${o.lat.toFixed(4)}, ${o.lng.toFixed(4)}`,
         destText: dText.trim() || `${d.lat.toFixed(4)}, ${d.lng.toFixed(4)}`,
         originCoord: o, destCoord: d,
-        activity: act as ActivityType || activity, pace, planningMode: planMode, response: res,
+        activity: validAct, pace: validPace, planningMode: validMode, response: res,
         selectedRouteId: res.route_options?.[0]?.id || 'coolest',
       } as any;
       saveHistory(item);
@@ -657,6 +668,19 @@ export default function App() {
   const formatDist = (km: number | null) => {
     if (km == null) return '--';
     return distUnit === 'mi' ? `${(km * 0.621371).toFixed(1)} mi` : `${km.toFixed(1)} km`;
+  };
+
+  const getRouteIcon = (r: any, size: number = 14, color?: string) => {
+    if (r.id === 'fastest' || r.tag?.toLowerCase().includes('fast')) {
+      return <Zap size={size} color={color || theme.accentFast} />;
+    }
+    if (r.id === 'coolest' || r.tag?.toLowerCase().includes('cool')) {
+      return <Snowflake size={size} color={color || theme.accentCool} />;
+    }
+    if (r.tag?.toLowerCase().includes('shade') || r.tag?.toLowerCase().includes('tree')) {
+      return <Trees size={size} color={color || '#10b981'} />;
+    }
+    return <Scale size={size} color={color || theme.accentBalanced} />;
   };
 
   const handleRestoreHistory = (item: any) => {
@@ -706,13 +730,20 @@ export default function App() {
       const { parseUserIntent } = await import('./services/api');
       const res = await parseUserIntent(promptText);
       const intent = res.intent;
-      if (intent) {
-        if (intent.activity) setActivity(intent.activity);
-        if (intent.pace) setPace(intent.pace);
-        if (intent.deadline_minutes) { setPlanMode('scheduled'); setDeadlineMinutes(intent.deadline_minutes); }
+      if (intent && (intent.destination_query || intent.origin_query)) {
+        const oQ = intent.origin_query || originText;
+        const dQ = intent.destination_query || destText;
+        const modeQ = intent.deadline_minutes && intent.deadline_minutes > 0 ? 'scheduled' : 'instant';
+        await handlePlanRouteAction(oQ, dQ, intent.activity, intent.pace, modeQ);
+      } else {
+        if (intent) {
+          if (intent.activity) setActivity(intent.activity);
+          if (intent.pace) setPace(intent.pace);
+          if (intent.deadline_minutes) { setPlanMode('scheduled'); setDeadlineMinutes(intent.deadline_minutes); }
+        }
+        setActiveTab('map');
+        await handleExecutePlan();
       }
-      setActiveTab('map');
-      await handleExecutePlan();
     } catch {
       setActiveTab('map');
       await handleExecutePlan();
@@ -1105,7 +1136,7 @@ export default function App() {
                           style={{ background: sel ? `rgba(56,189,248,0.12)` : 'transparent' }}
                         >
                           <div style={{ width: 28, height: 28, borderRadius: 14, background: sel ? col : theme.inputBg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginRight: 8 }}>
-                            {route.id === 'fastest' ? <Zap size={14} color={sel ? '#fff' : col} /> : route.id === 'coolest' ? <Snowflake size={14} color={sel ? '#fff' : col} /> : <Navigation size={14} color={sel ? '#fff' : col} />}
+                            {getRouteIcon(route, 14, sel ? '#fff' : col)}
                           </div>
                           <div style={{ flex: 1 }}>
                             <div style={{ color: theme.textPrimary, fontSize: 12, fontWeight: 800 }}>{route.name}</div>
@@ -1185,7 +1216,7 @@ export default function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                            {activeRoute.id === 'fastest' ? <Zap size={13} color={theme.accentFast} /> : activeRoute.id === 'coolest' ? <Snowflake size={13} color={theme.accentCool} /> : <Scale size={13} color={theme.accentBalanced} />}
+                            {getRouteIcon(activeRoute, 13)}
                             <span style={{ fontSize: 10, fontWeight: 800, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>ACTIVE SELECTED ROUTE</span>
                           </div>
                           <div style={{ fontSize: 15, fontWeight: 900, color: theme.textPrimary }}>{activeRoute.name}</div>

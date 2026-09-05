@@ -102,7 +102,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
         {
           role: 'assistant',
           content: "Hi! I'm CoolPath Assistant. Where would you like to go today?",
-          display_text: "👋 **Hi! I'm CoolPath Assistant.**\n\nWhere would you like to go today?",
+          display_text: "**Hi! I'm CoolPath Assistant.**\n\nWhere would you like to go today?",
           timestamp: Date.now()
         }
       ]);
@@ -362,7 +362,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
           
           isThinkingRef.current = true;
           setAssistantState('thinking');
-          setLiveTranscript('🎙️ Transcribing audio...');
+          setLiveTranscript('Transcribing audio...');
 
           const text = await transcribeAudio(base64, 'audio/webm');
           if (text && text.trim()) {
@@ -423,7 +423,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
     const errMsg: AssistantChatMessage = {
       role: 'assistant',
       content: "I didn't quite catch that. Could you please repeat?",
-      display_text: "⚠️ **No speech detected**\n\nI couldn't hear you clearly. Please try again or type below.",
+      display_text: "**No speech detected**\n\nI couldn't hear you clearly. Please try again or type below.",
       suggested_replies: ['Plan route to Central Park', 'Check weather'],
       timestamp: Date.now()
     };
@@ -502,7 +502,13 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       if (routeToExecute) {
         isExecutingRouteRef.current = true;
         stopAll();
-        onPlanRouteAction(routeToExecute.origin, routeToExecute.destination, routeToExecute.activity || 'walking');
+        onPlanRouteAction(
+          routeToExecute.origin,
+          routeToExecute.destination,
+          routeToExecute.activity || 'walking',
+          routeToExecute.pace || 'normal',
+          routeToExecute.planning_mode || 'instant'
+        );
         onClose();
         return;
       }
@@ -515,7 +521,7 @@ export const VoiceAssistantModal: React.FC<VoiceAssistantModalProps> = ({
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: "I'm having trouble connecting to the server.",
-        display_text: "⚠️ **Connection Error**\n\nCould not connect to CoolPath backend.",
+        display_text: "**Connection Error**\n\nCould not connect to CoolPath backend.",
         timestamp: Date.now()
       }]);
     }

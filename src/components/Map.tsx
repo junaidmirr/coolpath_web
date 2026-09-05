@@ -276,7 +276,7 @@ const Map: React.FC<MapProps> = ({
         routeOptions.push({
           id: 'fastest',
           name: 'Direct Fastest',
-          tag: '⚡ Fastest',
+          tag: 'Fastest',
           travel_minutes: missionResponse.comparison?.fastest?.travel_minutes || 0,
           avg_temp_c: 33.5,
           thermal_exposure: missionResponse.comparison?.fastest?.thermal_exposure || 55,
@@ -290,7 +290,7 @@ const Map: React.FC<MapProps> = ({
         routeOptions.push({
           id: 'recommended',
           name: 'CoolPath Route',
-          tag: '❄️ Coolest',
+          tag: 'Coolest',
           travel_minutes: missionResponse.comparison?.recommended?.travel_minutes || 0,
           avg_temp_c: 31.8,
           thermal_exposure: missionResponse.comparison?.recommended?.thermal_exposure || 45,
@@ -684,20 +684,24 @@ const Map: React.FC<MapProps> = ({
       el.className = 'nav-simulator-pin';
       
       // Determine simulator avatar based on activity mode
-      let avatarEmoji = '🚶';
-      if (navPosition.mode === 'running') avatarEmoji = '🏃';
-      else if (navPosition.mode === 'biking') avatarEmoji = '🚴';
-      else if (navPosition.mode === 'driving') avatarEmoji = '🚗';
+      let iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2"/><path d="m9 20 3-6 3 6"/><path d="m6 8 6 2 6-2"/><path d="M12 10v4"/></svg>`;
+      if (navPosition.mode === 'running') {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="17" cy="4" r="2"/><path d="m15 15 3-4-2-3-4 2-2 4 2 2"/><path d="m7 21 4-6"/><path d="M4 17l3-3"/></svg>`;
+      } else if (navPosition.mode === 'biking') {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>`;
+      } else if (navPosition.mode === 'driving') {
+        iconSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/></svg>`;
+      }
 
       el.style.cssText = `
-        width: 32px; height: 32px; border-radius: 50%;
-        background: #3b82f6; border: 2.5px solid white;
-        box-shadow: 0 0 12px #3b82f6;
+        width: 34px; height: 34px; border-radius: 50%;
+        background: #10B981; border: 2.5px solid white;
+        box-shadow: 0 0 12px rgba(16, 185, 129, 0.7);
         display: flex; align-items: center; justify-content: center;
-        font-size: 16px; transition: transform 0.25s ease-out;
+        transition: transform 0.25s ease-out;
         transform: rotate(${navPosition.bearing || 0}deg);
       `;
-      el.innerHTML = avatarEmoji;
+      el.innerHTML = iconSvg;
 
       const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([navPosition.lng, navPosition.lat])
@@ -753,7 +757,8 @@ const Map: React.FC<MapProps> = ({
           alignItems: 'center',
           gap: '6px'
         }}>
-          {pinMode === 'origin' ? '🟢' : '🔴'} Click map to set {pinMode === 'origin' ? 'Origin' : 'Destination'}
+          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', display: 'inline-block' }} />
+          Click map to set {pinMode === 'origin' ? 'Origin' : 'Destination'}
         </div>
       )}
     </div>
